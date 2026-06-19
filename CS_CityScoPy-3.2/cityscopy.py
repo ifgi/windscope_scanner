@@ -517,9 +517,10 @@ class Cityscopy:
         UDP_IP = "127.0.0.1"
         UDP_PORT = 5000
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        localJSON = "C:/Users/janse/OneDrive/Programing/JSON/" + str(datetime.now()).replace(":","-") + ".json"
+        json_dir = self.get_folder_path()+"temp"
+        os.makedirs(json_dir, exist_ok=True)
+        localJSON = json_dir + str(datetime.now()).replace(":","-") + ".json"
         try:
-            
             sock.sendto(str(scan_results).encode('utf-8'), (UDP_IP, UDP_PORT))
             with open(localJSON.replace(" ",""), 'w', encoding ='utf8') as json_file:
                 json.dump(scan_results, json_file)
