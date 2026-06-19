@@ -11,15 +11,16 @@ It is used for initiating and later run a interactive CityScope instance in any 
 
 ## Usage
 
--   install python 3.4 or higher
--   clone this repo
+- install python 3.14 or higher
+- install [poetry](https://python-poetry.org/docs/#installation)
+- clone this repo
 
-```
+```sh
 $ git clone https://github.com/CityScope/CS_CityScoPy.git
 $ cd CS_CityScoPy
+$ poetry install  # this will get all the required packages
 ```
 
--   install packages. To produce a list of needed packages, use `pipreqs`, follow instructions https://github.com/bndr/pipreqs. Or, simply run the app and install packages as they appear as missing.
 -   tweak `__settings__.json` to fit your cityIO table setup. Read [cityIO documentation](https://github.com/cityscope/cs_cityio_backend/wiki) for proper data structure
 -   in `run.py` setup a path to your settings file
 
@@ -119,7 +120,7 @@ OS, Python versions, openCV and peripheral devices such as webcams can sometimes
 
 ## License
 
-Please see `LICENSE` file for more details.This tool may require libraries which are subject to own licensing.
+Please see `LICENSE` file for more details. This tool may require libraries which are subject to own licensing.
 
 ## Contribution
 
