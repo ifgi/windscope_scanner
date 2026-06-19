@@ -15,14 +15,33 @@ It is used for initiating and later run a interactive CityScope instance in any 
 - install [poetry](https://python-poetry.org/docs/#installation)
 - clone this repo
 
+### clone project
 ```sh
 $ git clone https://github.com/CityScope/CS_CityScoPy.git
 $ cd CS_CityScoPy
-$ poetry install  # this will get all the required packages
 ```
 
--   tweak `__settings__.json` to fit your cityIO table setup. Read [cityIO documentation](https://github.com/cityscope/cs_cityio_backend/wiki) for proper data structure
--   in `run.py` setup a path to your settings file
+### setup project virtual env
+#### linux / macos
+```sh
+$ poetry install  # this will get all the required packages
+# activate the new virtual env, for bash/zsh/csh:
+$ eval $(poetry env activate)
+# for fish:
+$ eval (poetry env activate)
+# for powershell:
+$ Invoke-Expression (poetry env activate)
+```
+
+#### windows
+```ps1
+poetry install  # this will get all the required packages
+PS1> Invoke-Expression (poetry env activate)
+```
+
+### setup configs
+- tweak `__settings__.json` to fit your cityIO table setup. Read [cityIO documentation](https://github.com/cityscope/cs_cityio_backend/wiki) for proper data structure
+- in `run.py` setup a path to your settings file
 
 ```
 CITYSCOPY_SETTINGS_PATH = "__path__/__settings__.json"
