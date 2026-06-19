@@ -60,8 +60,6 @@ import json
 import os
 import socket
 from multiprocessing import Process, Manager
-import random
-import sys
 
 
 def crop_json(uncropped_json):
