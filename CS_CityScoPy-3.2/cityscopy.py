@@ -89,8 +89,8 @@ class Cityscopy:
 
         # init keystone variables
         self.FRAME = None
-        self.POINT_INDEX = None
-        self.POINTS = None
+        self.POINT_INDEX = 0
+        self.POINTS = []
         self.MOUSE_POSITION = None
 
     ##################################################
@@ -160,7 +160,7 @@ class Cityscopy:
 
         # try from a device 1 in list, not default webcam
         # TODO: windows only: video_capture = cv2.VideoCapture(camPos, cv2.CAP_DSHOW)
-        video_capture = cv2.VideoCapture(camPos, cv2.CAP_V4L2)
+        video_capture = cv2.VideoCapture(camPos)
         time.sleep(1)
 
         if grid_dimensions_y < grid_dimensions_x:
@@ -216,9 +216,10 @@ class Cityscopy:
             # else if camera capture is ok
             else:
                 h, w, *_ = this_frame.shape
-                #res_matrix = np.array([[w, 0, 0], [0, h, 0], [0, 0, 1]])
-                matrix =  np.array([[613.88367983, 0, 319.21787006],[0, 614.31059499, 202.28879716],[0, 0, 1]])
-                distortion =  np.array([[-0.37703544,  0.31425025, -0.00366991, -0.00103216, -0.28197977]])
+                matrix = np.array([[w, 0, 0], [0, h, 0], [0, 0, 1]])
+                # matrix =  np.array([[613.88367983, 0, 319.21787006],[0, 614.31059499, 202.28879716],[0, 0, 1]])
+                distortion = np.array([[0, 0, 0, 0, 0]])
+                # distortion =  np.array([[-0.37703544,  0.31425025, -0.00366991, -0.00103216, -0.28197977]])
 
                 #rel_camera_matrix = np.array(matrix)
                 #distortion_coefficients = np.array(distortion)
@@ -261,8 +262,8 @@ class Cityscopy:
                 mean_color = cv2.mean(this_scanner_size)
 
                 # convert colors to rgb
-                color_b, color_g, color_r, _ = np.uint8(mean_color)
-                mean_color_RGB = np.uint8([[[color_b, color_g, color_r]]])
+                color_b, color_g, color_r, _ = np.array(mean_color, dtype=np.uint8)
+                mean_color_RGB = np.array([[[color_b, color_g, color_r]]], dtype=np.uint8)
 
                 # select the right color based on sample
                 scannerCol = self.select_color_by_mean_value(mean_color_RGB)
@@ -657,7 +658,7 @@ class Cityscopy:
 
     ##################################################
 
-    def transfrom_matrix(self, video_resolution_x, video_resolution_y, keyStonePts):
+    def transfrom_matrix(self, video_resolution_x: int, video_resolution_y: int, keyStonePts):
         '''
         NOTE: Aspect ratio must be flipped
         so that aspectRat[0,1] will be aspectRat[1,0]
@@ -666,14 +667,15 @@ class Cityscopy:
         # inverted screen ratio for np source array
         video_aspect_ratio = (video_resolution_y, video_resolution_x)
         # np source points array
-        keystone_origin_points_array = np.float32(
+        keystone_origin_points_array = np.array(
             [
                 [0, 0],
                 [video_aspect_ratio[1], 0],
                 [0, video_aspect_ratio[0]],
                 [video_aspect_ratio[1], video_aspect_ratio[0]]
-            ])
-        # make the 4 pnts matrix perspective transformation
+            ], dtype=np.float32)
+
+        # make the 4 points matrix perspective transformation
         transfromed_matrix = cv2.getPerspectiveTransform(
             keyStonePts, keystone_origin_points_array)
 
@@ -686,8 +688,6 @@ class Cityscopy:
         convert color to hsv for oclidian distance
         '''
         bgr_to_grayscale = cv2.cvtColor(mean_color_RGB, cv2.COLOR_BGR2GRAY)
-        # the [0, 0] thing seems to be needed on V4L2
-        # TODO: does this still throw errors on windows (CAP_DSHOW)?
         if int(bgr_to_grayscale[0, 0]) < 125:
             this_color = 0
         else:
@@ -727,7 +727,8 @@ class Cityscopy:
 
     ##################################################
 
-    def brick_rotation_check(self, this_16_bits, tagsArray, mapArray):
+    def brick_rotation_check(self, this_16_bits, tagsArray, _mapArray):
+        # TODO: what does _mapArray do? is it needed?
         tags_array_counter = 0
         for this_tag in tagsArray:
             # if this 16 bits equal the tag as is
@@ -778,7 +779,7 @@ class Cityscopy:
         # serial num of camera, to switch between cameras
         camPos = self.table_settings['camId']
         # try from a device 1 in list, not default webcam
-        WEBCAM = cv2.VideoCapture(camPos, cv2.CAP_V4L2)
+        WEBCAM = cv2.VideoCapture(camPos)
 
         time.sleep(1)
 
@@ -798,7 +799,7 @@ class Cityscopy:
             # loop until 4 clicks
             while self.POINT_INDEX != 4:
                 key = cv2.waitKey(20) & 0xFF
-                if key == 27:
+                if key == 27 or key == ord('q'):
                     return False
                 # wait for clicks
                 cv2.setMouseCallback('canvas', save_this_point)
@@ -806,34 +807,40 @@ class Cityscopy:
                 _, self.FRAME = WEBCAM.read()
                 h, w, *_ = self.FRAME.shape
 
-                # res_matrix = np.array([[w, 0, 0], [0, h, 0], [0, 0, 1]])
-                matrix =  np.array([[613.88367983, 0, 319.21787006],[0, 614.31059499, 202.28879716],[0, 0, 1]])
-                distortion =  np.array([[-0.37703544,  0.31425025, -0.00366991, -0.00103216, -0.28197977]])
+                matrix = np.array([[w, 0, 0], [0, h, 0], [0, 0, 1]])
+                # matrix =  np.array([[613.88367983, 0, 319.21787006],[0, 614.31059499, 202.28879716],[0, 0, 1]])
+                distortion = np.array([[0, 0, 0, 0, 0]])
+                # distortion =  np.array([[-0.37703544,  0.31425025, -0.00366991, -0.00103216, -0.28197977]])
 
                 # rel_camera_matrix = np.array(matrix)
                 # distortion_coefficients = np.array(distortion)
 
                 # abs_camera_matrix = np.matmul(res_matrix, rel_camera_matrix)
-                newcameramtx, roi = cv2.getOptimalNewCameraMatrix(matrix, distortion, (w,h), 1, (w,h))
+                newcameramtx, _roi = cv2.getOptimalNewCameraMatrix(matrix, distortion, (w,h), 1, (w,h))
                 # self.FRAME = cv2.undistort(self.FRAME,rel_camera_matrix, distortion_coefficients, None, newcameramtx)
                 self.FRAME = cv2.undistort(self.FRAME, matrix, distortion, None, newcameramtx)
+                if type(self.FRAME) is cv2.typing.MatLike:
+                    print("no frame read from camera, check camera connection and settings")
+                    return False
 
                 # _, self.FRAME = WEBCAM.read()
                 if self.table_settings['mirror_cam'] is True:
                     self.FRAME = cv2.flip(self.FRAME, 1)
 
                 # draw mouse pos
-                cv2.circle(self.FRAME, self.MOUSE_POSITION, 10, (0, 0, 255), 1)
-                cv2.circle(self.FRAME, self.MOUSE_POSITION, 1, (0, 0, 255), 2)
+                cv2.circle(self.FRAME, self.MOUSE_POSITION or (0, 0), 10, (0, 0, 255), 1)
+                cv2.circle(self.FRAME, self.MOUSE_POSITION or (0, 0), 1, (0, 0, 255), 2)
+                
                 # draw clicked points
                 for thisPnt in self.POINTS:
                     cv2.circle(self.FRAME, thisPnt, 10, (255, 0, 0), 1)
+
                 # show the video
                 cv2.imshow('canvas', self.FRAME)
             # when done selecting 4 pnts return
             return True
 
-        def save_this_point(event, x, y, flags, param):
+        def save_this_point(event, x, y, _flags, _param):
             # mouse callback function
             if event == cv2.EVENT_MOUSEMOVE:
                 self.MOUSE_POSITION = (x, y)
