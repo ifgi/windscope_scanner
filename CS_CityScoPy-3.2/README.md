@@ -29,8 +29,6 @@ $ poetry install  # this will get all the required packages
 $ eval $(poetry env activate)
 # for fish:
 $ eval (poetry env activate)
-# for powershell:
-$ Invoke-Expression (poetry env activate)
 ```
 
 #### windows
@@ -40,11 +38,11 @@ PS1> Invoke-Expression (poetry env activate)
 ```
 
 ### setup configs
-- tweak `__settings__.json` to fit your cityIO table setup. Read [cityIO documentation](https://github.com/cityscope/cs_cityio_backend/wiki) for proper data structure
-- in `run.py` setup a path to your settings file
+- tweak `settings/cityscopy.json` to fit your cityIO table setup. Read [cityIO documentation](https://github.com/cityscope/cs_cityio_backend/wiki) for proper data structure
+- in `run.py` setup a path to your settings file (should be fine if you edited the file mentioned above)
 
 ```
-CITYSCOPY_SETTINGS_PATH = "__path__/__settings__.json"
+CITYSCOPY_SETTINGS_PATH = "settings/cityscopy.json"
 ```
 
 -   initiate the `Cityscopy` class (see `run.py` example)
