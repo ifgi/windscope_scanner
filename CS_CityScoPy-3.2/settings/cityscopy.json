@@ -33,10 +33,6 @@
     "cell_gap": 0,
     "mirror_cam": false,
     "brightness": 0,
-    "contrast": 1.0,
-    "distort_top": 0,
-    "distort_right": 0,
-    "distort_bottom": 0,
-    "distort_left": 0
+    "contrast": 1.0
   }
 }

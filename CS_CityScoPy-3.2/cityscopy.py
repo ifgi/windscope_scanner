@@ -119,9 +119,7 @@ class Cityscopy:
     def get_init_keystone(self):
 
         # load the initial keystone data from file
-        keystone_points_array = np.loadtxt(
-            self.get_folder_path() + "keystone.txt", dtype=np.float32
-        )
+        keystone_points_array, self.init_edge_distortion = self.read_keystone_file()
 
         # break it to points
         ulx = keystone_points_array[0][0]
@@ -200,14 +198,19 @@ class Cityscopy:
         # per-side edge distortion sliders: -100..100 (slider 0..200)
         # positive straightens an edge bowing outward (barrel),
         # negative straightens an edge bowing inward (pincushion)
-        for side in ("top", "right", "bottom", "left"):
+        # values are loaded from and saved to keystone.txt on every change
+        self.edge_sliders_ready = False
+        for side, value in zip(
+            ("top", "right", "bottom", "left"), self.init_edge_distortion
+        ):
             cv2.createTrackbar(
                 "distort_" + side,
                 "scanner_gui_window",
-                int(self.table_settings.get("distort_" + side, 0)) + 100,
+                value + 100,
                 200,
-                lambda _: None,
+                lambda _: self.save_edge_distortion_to_file(),
             )
+        self.edge_sliders_ready = True
 
         # call colors dictionary
         DICTIONARY_COLORS = {
@@ -273,11 +276,9 @@ class Cityscopy:
                     this_frame = cv2.flip(this_frame, 1)
 
                 # bend each edge from the distortion sliders, corners stay fixed
-                edge_distortion = [
-                    cv2.getTrackbarPos("distort_" + side, "scanner_gui_window") - 100
-                    for side in ("top", "right", "bottom", "left")
-                ]
-                this_frame = self.apply_edge_distortion(this_frame, edge_distortion)
+                this_frame = self.apply_edge_distortion(
+                    this_frame, self.get_edge_distortion_from_sliders()
+                )
 
                 # warp the video based on keystone info
                 keystoned_video = cv2.warpPerspective(
@@ -342,6 +343,18 @@ class Cityscopy:
                         thisColor,
                         1,
                     )
+
+                    # every 16th scanner is the top-left of a 4x4 tile,
+                    # draw a red border around the tile to check the grid
+                    if count % 16 == 0:
+                        tile_size = int(scanner_square_size) * 4
+                        cv2.rectangle(
+                            keystoned_video,
+                            (x, y),
+                            (x + tile_size - 1, y + tile_size - 1),
+                            (0, 0, 255),
+                            1,
+                        )
 
                     # cell counter
                 count = count + 1
@@ -729,9 +742,81 @@ class Cityscopy:
 
         """
 
-        filePath = self.get_folder_path() + "keystone.txt"
-        np.savetxt(filePath, keystone_data_from_user_interaction)
+        filePath = self.write_keystone_file(
+            keystone_data_from_user_interaction,
+            self.get_edge_distortion_from_sliders(),
+        )
         print("[!] keystone points were saved in", filePath)
+
+    ##################################################
+
+    def read_keystone_file(self):
+        """
+        reads keystone.txt.
+
+        Steps:
+        rows 1-4 are the corner points (x y)
+        rows 5-6 are the edge distortion (top right / bottom left),
+        missing in older files, then defaults to 0
+
+        Returns 4x2 array of corner points and [top, right, bottom, left]
+        """
+
+        keystone_file_array = np.loadtxt(
+            self.get_folder_path() + "keystone.txt", dtype=np.float32
+        )
+        if len(keystone_file_array) >= 6:
+            edge_distortion = [int(d) for d in keystone_file_array[4:6].flatten()]
+        else:
+            edge_distortion = [0, 0, 0, 0]
+        return keystone_file_array[:4], edge_distortion
+
+    ##################################################
+
+    def write_keystone_file(self, keystone_points, edge_distortion):
+        """
+        writes corner points and edge distortion to keystone.txt.
+
+        Returns the file path
+        """
+
+        filePath = self.get_folder_path() + "keystone.txt"
+        keystone_file_array = np.vstack(
+            [
+                np.asarray(keystone_points, dtype=np.float32).reshape(4, 2),
+                np.asarray(edge_distortion, dtype=np.float32).reshape(2, 2),
+            ]
+        )
+        np.savetxt(filePath, keystone_file_array)
+        return filePath
+
+    ##################################################
+
+    def get_edge_distortion_from_sliders(self):
+        """
+        Returns [top, right, bottom, left] from the distortion sliders
+        """
+
+        return [
+            cv2.getTrackbarPos("distort_" + side, "scanner_gui_window") - 100
+            for side in ("top", "right", "bottom", "left")
+        ]
+
+    ##################################################
+
+    def save_edge_distortion_to_file(self):
+        """
+        updates the edge distortion in keystone.txt when a slider moves,
+        keeping the corner points that are saved in the file
+        """
+
+        # skip callbacks fired while the sliders are still being created
+        if not self.edge_sliders_ready:
+            return
+        keystone_points, _ = self.read_keystone_file()
+        self.write_keystone_file(
+            keystone_points, self.get_edge_distortion_from_sliders()
+        )
 
     ##################################################
 
@@ -982,7 +1067,12 @@ class Cityscopy:
 
         # checks if finished selecting the 4 corners
         if selectFourPoints():
-            np.savetxt(self.KEYSTONE_PATH, self.POINTS)
+            # keep any edge distortion already saved in the file
+            try:
+                _, edge_distortion = self.read_keystone_file()
+            except OSError:
+                edge_distortion = [0, 0, 0, 0]
+            self.write_keystone_file(self.POINTS, edge_distortion)
             print("keystone initial points were saved")
 
         WEBCAM.release()
