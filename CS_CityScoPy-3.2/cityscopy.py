@@ -875,12 +875,15 @@ class Cityscopy:
                     init_keystone[7] = init_keystone[7] + 1
                 elif self.corner_direction == "s":
                     init_keystone[7] = init_keystone[7] - 1
-        #  saves to file
+
+            # save every fine adjustment to keystone.txt right away
+            self.save_keystone_to_file(np.asarray(init_keystone).reshape(4, 2))
         # resets the dragged grid to the default layout
         elif chr(KEY_STROKE & 255) == "g":
             self.grid_points = self.grid_default_points.copy()
             self.grid_drag_index = None
             self.save_grid_to_file()
+        #  saves to file
         elif chr(KEY_STROKE & 255) == "k":
             # reset selected corner
             self.selected_corner = None

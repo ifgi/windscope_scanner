@@ -88,7 +88,7 @@ Scanner will detect colors in arrays of 2d-pixel arrays. Than, these color array
 -   `tags` 16 digit strings of types being scanned [`1000000100000000`]
 
 Tool will start scanning using whatever keystone data was stored in `keystone.txt`
-make corrections to the key stone using the sliders or keyboard using `1,2,3,4` to select a corner and `[w,a,s,d]` to move `[up,left,down,right]` the selected corner. Press `k` to save change to file and `ctrl-c` twice [in the terminal window] to exit program
+make corrections to the key stone using the sliders or keyboard using `1,2,3,4` to select a corner and `[w,a,s,d]` to move `[up,left,down,right]` the selected corner. Every corner adjustment is saved to `keystone.txt` right away (`k` also saves). Press `ctrl-c` twice [in the terminal window] to exit program
 
 The red lines show the borders of every 4x4 tile. Drag any intersection with the mouse to align the grid with the physical tiles, it is saved to `grid.txt` on release. Press `g` to reset the grid
 
