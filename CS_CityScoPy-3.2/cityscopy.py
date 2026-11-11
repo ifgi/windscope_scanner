@@ -180,22 +180,40 @@ class Cityscopy:
         cv2.resizeWindow("scanner_gui_window", 800, 800)
         cv2.moveWindow("scanner_gui_window", 10, 100)
 
+        # separate controls window docked to the right of the video window
+        cv2.namedWindow("scanner_controls", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("scanner_controls", 400, 400)
+        cv2.moveWindow("scanner_controls", 820, 100)
+        cv2.imshow("scanner_controls", np.zeros((1, 400, 3), dtype=np.uint8))
+
         # brightness/contrast sliders for the preprocessed image
         # brightness: -100..100 (slider 0..200), contrast: 0.00..3.00 (slider 0..300)
         cv2.createTrackbar(
             "brightness",
-            "scanner_gui_window",
+            "scanner_controls",
             int(self.table_settings.get("brightness", 0)) + 100,
             200,
             lambda _: None,
         )
         cv2.createTrackbar(
             "contrast",
-            "scanner_gui_window",
+            "scanner_controls",
             int(self.table_settings.get("contrast", 1.0) * 100),
             300,
             lambda _: None,
         )
+
+        # per-side edge distortion sliders: -100..100 (slider 0..200)
+        # positive straightens an edge bowing outward (barrel),
+        # negative straightens an edge bowing inward (pincushion)
+        for side in ("top", "right", "bottom", "left"):
+            cv2.createTrackbar(
+                "distort_" + side,
+                "scanner_controls",
+                int(self.table_settings.get("distort_" + side, 0)) + 100,
+                200,
+                lambda _: None,
+            )
 
         # call colors dictionary
         DICTIONARY_COLORS = {
@@ -259,16 +277,24 @@ class Cityscopy:
                 # mirror camera
                 if self.table_settings["mirror_cam"] is True:
                     this_frame = cv2.flip(this_frame, 1)
-                    # warp the video based on keystone info
+
+                # bend each edge from the distortion sliders, corners stay fixed
+                edge_distortion = [
+                    cv2.getTrackbarPos("distort_" + side, "scanner_controls") - 100
+                    for side in ("top", "right", "bottom", "left")
+                ]
+                this_frame = self.apply_edge_distortion(this_frame, edge_distortion)
+
+                # warp the video based on keystone info
                 keystoned_video = cv2.warpPerspective(
                     this_frame, keystone_data, (video_resolution_x, video_resolution_y)
                 )
 
                 # apply brightness/contrast from the sliders before scanning
                 brightness = (
-                    cv2.getTrackbarPos("brightness", "scanner_gui_window") - 100
+                    cv2.getTrackbarPos("brightness", "scanner_controls") - 100
                 )
-                contrast = cv2.getTrackbarPos("contrast", "scanner_gui_window") / 100
+                contrast = cv2.getTrackbarPos("contrast", "scanner_controls") / 100
                 keystoned_video = cv2.convertScaleAbs(
                     keystoned_video, alpha=contrast, beta=brightness
                 )
@@ -742,6 +768,44 @@ class Cityscopy:
         )
 
         return transfromed_matrix
+
+    ##################################################
+
+    def apply_edge_distortion(self, frame, edge_distortion):
+        """
+        bends each side of the frame independently.
+
+        Steps:
+        edge_distortion is [top, right, bottom, left] in -100..100.
+        each side is displaced along a parabola that is 0 at the
+        corners and max (10% of the frame) at the middle of that side,
+        fading out linearly towards the opposite side.
+        remap grids are cached and only rebuilt when values change.
+
+        """
+
+        if not any(edge_distortion):
+            return frame
+
+        h, w, *_ = frame.shape
+        cache_key = (w, h, tuple(edge_distortion))
+        if getattr(self, "_edge_distortion_key", None) != cache_key:
+            top, right, bottom, left = (d / 1000 for d in edge_distortion)
+            u, v = np.meshgrid(
+                np.linspace(0, 1, w, dtype=np.float32),
+                np.linspace(0, 1, h, dtype=np.float32),
+            )
+            # 0 at the corners, 1 at the middle of the side
+            bulge_u = 4 * u * (1 - u)
+            bulge_v = 4 * v * (1 - v)
+            # positive values sample further outside, pulling a bulge back in
+            map_x = (u - left * bulge_v * (1 - u) + right * bulge_v * u) * (w - 1)
+            map_y = (v - top * bulge_u * (1 - v) + bottom * bulge_u * v) * (h - 1)
+            self._edge_distortion_maps = (map_x, map_y)
+            self._edge_distortion_key = cache_key
+
+        map_x, map_y = self._edge_distortion_maps
+        return cv2.remap(frame, map_x, map_y, cv2.INTER_LINEAR)
 
     ##################################################
 
