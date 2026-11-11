@@ -225,14 +225,19 @@ class Cityscopy:
         y_ratio = int(video_resolution_y / (grid_dimensions_y * 4))
         scanner_square_size = np.minimum(x_ratio, y_ratio)
 
-        # create the location  array of scanners
-        array_of_scanner_points_locations = self.get_scanner_pixel_coordinates(
+        # draggable tile corner points, loaded from grid.txt if it fits this table
+        self.grid_video_size = (video_resolution_x, video_resolution_y)
+        self.grid_default_points = self.get_default_grid_points(
             grid_dimensions_x,
             grid_dimensions_y,
             video_resolution_x,
             video_resolution_y,
             scanner_square_size,
         )
+        self.grid_points = self.read_grid_file(self.grid_default_points)
+        self.grid_drag_index = None
+        self.grid_pick_radius = int(scanner_square_size) * 2
+        cv2.setMouseCallback("scanner_gui_window", self.on_grid_mouse)
 
         # run the video loop forever
         while True:
@@ -293,17 +298,35 @@ class Cityscopy:
                 keystoned_video = cv2.convertScaleAbs(
                     keystoned_video, alpha=contrast, beta=brightness
                 )
+            # create the location array of scanners from the (dragged) grid
+            array_of_scanner_points_locations = self.get_scanner_centers(
+                self.grid_points, scanner_square_size
+            )
+
             # cell counter
             count = 0
             # run through locations list and make scanners
             for this_scanner_location in array_of_scanner_points_locations:
-                # set x and y from locations array
-                x = this_scanner_location[0]
-                y = this_scanner_location[1]
-
                 # use this to control reduction of scanner size
                 this_scanner_max_dimension = int(scanner_square_size)
                 scanner_reduction = int(scanner_square_size / 4)
+
+                # top left of the scanner cell, kept inside the video
+                # when points are dragged out
+                x = int(
+                    np.clip(
+                        round(this_scanner_location[0] - scanner_square_size / 2),
+                        0,
+                        video_resolution_x - this_scanner_max_dimension,
+                    )
+                )
+                y = int(
+                    np.clip(
+                        round(this_scanner_location[1] - scanner_square_size / 2),
+                        0,
+                        video_resolution_y - this_scanner_max_dimension,
+                    )
+                )
                 # short vars
                 x_red = x + this_scanner_max_dimension - scanner_reduction
                 y_red = y + this_scanner_max_dimension - scanner_reduction
@@ -344,18 +367,6 @@ class Cityscopy:
                         1,
                     )
 
-                    # every 16th scanner is the top-left of a 4x4 tile,
-                    # draw a red border around the tile to check the grid
-                    if count % 16 == 0:
-                        tile_size = int(scanner_square_size) * 4
-                        cv2.rectangle(
-                            keystoned_video,
-                            (x, y),
-                            (x + tile_size - 1, y + tile_size - 1),
-                            (0, 0, 255),
-                            1,
-                        )
-
                     # cell counter
                 count = count + 1
 
@@ -382,6 +393,8 @@ class Cityscopy:
                 pass
 
             if self.table_settings["gui"] is True:
+                # draw red borders of the 4x4 tiles, drag intersections to align
+                self.draw_grid(keystoned_video)
                 # draw arrow to interaction area
                 self.ui_selected_corner(
                     video_resolution_x, video_resolution_y, keystoned_video
@@ -496,6 +509,156 @@ class Cityscopy:
                             ]
                         )
         return pixel_coordinates_list
+
+    ##################################################
+
+    def get_default_grid_points(
+        self,
+        grid_dimensions_x,
+        grid_dimensions_y,
+        video_res_x,
+        video_res_y,
+        scanner_square_size,
+    ):
+        """
+        creates the tile corner points of the undragged grid.
+
+        Steps:
+        same layout as get_scanner_pixel_coordinates, one point
+        at every intersection of the 4x4 tile borders
+
+        Returns (grid_y + 1, grid_x + 1, 2) array of [x, y] pixel coordinates
+        """
+
+        tile_size = scanner_square_size * 4
+        tile_pitch = tile_size + self.table_settings["cell_gap"]
+        grid_x_offset = int(0.5 * (video_res_x - (grid_dimensions_x * tile_size)))
+        grid_y_offset = int(0.5 * (video_res_y - (grid_dimensions_y * tile_size)))
+
+        x_positions = grid_x_offset + np.arange(grid_dimensions_x + 1) * tile_pitch
+        y_positions = grid_y_offset + np.arange(grid_dimensions_y + 1) * tile_pitch
+        grid_x, grid_y = np.meshgrid(x_positions, y_positions)
+        return np.dstack([grid_x, grid_y]).astype(np.float32)
+
+    ##################################################
+
+    def get_scanner_centers(self, grid_points, scanner_square_size):
+        """
+        places the 4x4 scanners of every tile between its 4 corner points.
+
+        Steps:
+        bilinear interpolation inside each tile quad, scanners are
+        ordered like get_scanner_pixel_coordinates (tile rows, tile
+        cols, then x and y inside the tile)
+
+        Returns (n, 2) array of [x, y] scanner center pixel coordinates
+        """
+
+        # position of the 4 scanner centers along a tile side, 0..1
+        tile_pitch = scanner_square_size * 4 + self.table_settings["cell_gap"]
+        steps = (np.arange(4) + 0.5) * scanner_square_size / tile_pitch
+        # u along x, v along y, ordered i (x) then j (y) like the scanner list
+        u, v = [a.reshape(1, 1, 16, 1) for a in np.meshgrid(steps, steps, indexing="ij")]
+
+        top_left = grid_points[:-1, :-1, None]
+        top_right = grid_points[:-1, 1:, None]
+        bottom_left = grid_points[1:, :-1, None]
+        bottom_right = grid_points[1:, 1:, None]
+        centers = (
+            (1 - u) * (1 - v) * top_left
+            + u * (1 - v) * top_right
+            + (1 - u) * v * bottom_left
+            + u * v * bottom_right
+        )
+        return centers.reshape(-1, 2)
+
+    ##################################################
+
+    def draw_grid(self, vid):
+        """
+        draws the red 4x4 tile borders and their draggable intersections
+        """
+
+        grid_lines = np.round(self.grid_points).astype(np.int32)
+        # rows and columns of the tile borders
+        grid_columns = np.ascontiguousarray(grid_lines.transpose(1, 0, 2))
+        cv2.polylines(vid, list(grid_lines), False, (0, 0, 255), 1)
+        cv2.polylines(vid, list(grid_columns), False, (0, 0, 255), 1)
+        for point in grid_lines.reshape(-1, 2):
+            cv2.circle(vid, (int(point[0]), int(point[1])), 2, (0, 0, 255), -1)
+        # highlight the point that is being dragged
+        if self.grid_drag_index is not None:
+            point = grid_lines[self.grid_drag_index]
+            cv2.circle(
+                vid,
+                (int(point[0]), int(point[1])),
+                self.grid_pick_radius,
+                (0, 0, 255),
+                1,
+            )
+
+    ##################################################
+
+    def on_grid_mouse(self, event, x, y, _flags, _param):
+        """
+        mouse callback to drag the grid intersections.
+
+        Steps:
+        pick the closest intersection on press, move it while dragging,
+        save the grid to grid.txt on release
+        """
+
+        if event == cv2.EVENT_LBUTTONDOWN:
+            distances = np.linalg.norm(self.grid_points - (x, y), axis=2)
+            closest = np.unravel_index(np.argmin(distances), distances.shape)
+            if distances[closest] <= self.grid_pick_radius:
+                self.grid_drag_index = closest
+        elif event == cv2.EVENT_MOUSEMOVE and self.grid_drag_index is not None:
+            self.grid_points[self.grid_drag_index] = (x, y)
+        elif event == cv2.EVENT_LBUTTONUP and self.grid_drag_index is not None:
+            self.grid_drag_index = None
+            self.save_grid_to_file()
+
+    ##################################################
+
+    def read_grid_file(self, default_grid_points):
+        """
+        reads the dragged grid from grid.txt.
+
+        Steps:
+        points are stored relative to the video size (0..1),
+        falls back to the default grid if the file is missing
+        or was saved for a different table size
+
+        Returns (grid_y + 1, grid_x + 1, 2) array of [x, y] pixel coordinates
+        """
+
+        filePath = self.get_folder_path() + "grid.txt"
+        if not os.path.exists(filePath):
+            return default_grid_points.copy()
+
+        grid_file_array = np.loadtxt(filePath, dtype=np.float32, ndmin=2)
+        if grid_file_array.shape != (default_grid_points[..., 0].size, 2):
+            print("[!] grid.txt does not match the table size, using default grid")
+            return default_grid_points.copy()
+        return grid_file_array.reshape(default_grid_points.shape) * np.array(
+            self.grid_video_size, dtype=np.float32
+        )
+
+    ##################################################
+
+    def save_grid_to_file(self):
+        """
+        saves the dragged grid to grid.txt, relative to the video size
+        """
+
+        filePath = self.get_folder_path() + "grid.txt"
+        np.savetxt(
+            filePath,
+            self.grid_points.reshape(-1, 2)
+            / np.array(self.grid_video_size, dtype=np.float32),
+        )
+        print("[!] grid points were saved in", filePath)
 
     ##################################################
 
@@ -713,6 +876,11 @@ class Cityscopy:
                 elif self.corner_direction == "s":
                     init_keystone[7] = init_keystone[7] - 1
         #  saves to file
+        # resets the dragged grid to the default layout
+        elif chr(KEY_STROKE & 255) == "g":
+            self.grid_points = self.grid_default_points.copy()
+            self.grid_drag_index = None
+            self.save_grid_to_file()
         elif chr(KEY_STROKE & 255) == "k":
             # reset selected corner
             self.selected_corner = None
