@@ -31,6 +31,8 @@
       "1100110000110011"
     ],
     "cell_gap": 0,
-    "mirror_cam": false
+    "mirror_cam": false,
+    "brightness": 0,
+    "contrast": 1.0
   }
 }
