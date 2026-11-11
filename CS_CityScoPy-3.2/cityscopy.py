@@ -195,9 +195,10 @@ class Cityscopy:
             lambda _: None,
         )
 
-        # per-side edge distortion sliders: -100..100 (slider 0..200)
-        # positive straightens an edge bowing outward (barrel),
-        # negative straightens an edge bowing inward (pincushion)
+        # per-side lens distortion sliders, from the lens middle
+        # -100..100 (slider 0..200)
+        # positive straightens lines bowing outward (barrel),
+        # negative straightens lines bowing inward (pincushion)
         # values are loaded from and saved to keystone.txt on every change
         self.edge_sliders_ready = False
         for side, value in zip(
@@ -293,7 +294,7 @@ class Cityscopy:
                 if self.table_settings["mirror_cam"] is True:
                     this_frame = cv2.flip(this_frame, 1)
 
-                # bend each edge from the distortion sliders, corners stay fixed
+                # radial lens distortion from the sliders, before the keystone
                 this_frame = self.apply_edge_distortion(
                     this_frame, self.get_edge_distortion_from_sliders()
                 )
@@ -1092,13 +1093,16 @@ class Cityscopy:
 
     def apply_edge_distortion(self, frame, edge_distortion):
         """
-        bends each side of the frame independently.
+        radial lens distortion from the middle of the camera frame,
+        applied before the keystone transform.
 
         Steps:
         edge_distortion is [top, right, bottom, left] in -100..100.
-        each side is displaced along a parabola that is 0 at the
-        corners and max (10% of the frame) at the middle of that side,
-        fading out linearly towards the opposite side.
+        each pixel is moved along the line from the lens middle,
+        by k * r^2 like a radial lens model. k is blended from the
+        4 sliders by direction, so each side can have its own strength.
+        positive values straighten lines bowing outward (barrel),
+        negative values straighten lines bowing inward (pincushion).
         remap grids are cached and only rebuilt when values change.
 
         """
@@ -1109,17 +1113,23 @@ class Cityscopy:
         h, w, *_ = frame.shape
         cache_key = (w, h, tuple(edge_distortion))
         if getattr(self, "_edge_distortion_key", None) != cache_key:
-            top, right, bottom, left = (d / 1000 for d in edge_distortion)
-            u, v = np.meshgrid(
-                np.linspace(0, 1, w, dtype=np.float32),
-                np.linspace(0, 1, h, dtype=np.float32),
+            # max strength of k at slider 100
+            top, right, bottom, left = (-d / 500 for d in edge_distortion)
+            center_x, center_y = (w - 1) / 2, (h - 1) / 2
+            norm = max(w, h) / 2
+            # coordinates relative to the lens middle, 1 at the long side edge
+            dx, dy = np.meshgrid(
+                (np.arange(w, dtype=np.float32) - center_x) / norm,
+                (np.arange(h, dtype=np.float32) - center_y) / norm,
             )
-            # 0 at the corners, 1 at the middle of the side
-            bulge_u = 4 * u * (1 - u)
-            bulge_v = 4 * v * (1 - v)
-            # positive values sample further outside, pulling a bulge back in
-            map_x = (u - left * bulge_v * (1 - u) + right * bulge_v * u) * (w - 1)
-            map_y = (v - top * bulge_u * (1 - v) + bottom * bulge_u * v) * (h - 1)
+            r2 = dx * dx + dy * dy
+            # blend the side strengths by direction (cos^2 / sin^2 of the angle)
+            k_x = np.where(dx < 0, left, right) * dx * dx
+            k_y = np.where(dy < 0, top, bottom) * dy * dy
+            # k * r^2 with k blended by angle is k_x + k_y
+            scale = 1 + k_x + k_y
+            map_x = (center_x + dx * scale * norm).astype(np.float32)
+            map_y = (center_y + dy * scale * norm).astype(np.float32)
             self._edge_distortion_maps = (map_x, map_y)
             self._edge_distortion_key = cache_key
 
@@ -1235,6 +1245,12 @@ class Cityscopy:
         self.POINT_INDEX = 0
         self.MOUSE_POSITION = (0, 0)
 
+        # lens distortion saved in keystone.txt, applied to the calibration view
+        try:
+            _, edge_distortion = self.read_keystone_file()
+        except OSError:
+            edge_distortion = [0, 0, 0, 0]
+
         def selectFourPoints():
             # let users select 4 points on WEBCAM GUI
             print(
@@ -1279,6 +1295,9 @@ class Cityscopy:
                 if self.table_settings["mirror_cam"] is True:
                     self.FRAME = cv2.flip(self.FRAME, 1)
 
+                # same lens distortion as the scanner, so the corners match
+                self.FRAME = self.apply_edge_distortion(self.FRAME, edge_distortion)
+
                 # draw mouse pos
                 cv2.circle(
                     self.FRAME, self.MOUSE_POSITION or (0, 0), 10, (0, 0, 255), 1
@@ -1307,11 +1326,7 @@ class Cityscopy:
 
         # checks if finished selecting the 4 corners
         if selectFourPoints():
-            # keep any edge distortion already saved in the file
-            try:
-                _, edge_distortion = self.read_keystone_file()
-            except OSError:
-                edge_distortion = [0, 0, 0, 0]
+            # keep the lens distortion already saved in the file
             self.write_keystone_file(self.POINTS, edge_distortion)
             print("keystone initial points were saved")
 
