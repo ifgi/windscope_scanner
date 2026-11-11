@@ -237,7 +237,20 @@ class Cityscopy:
         self.grid_points = self.read_grid_file(self.grid_default_points)
         self.grid_drag_index = None
         self.grid_pick_radius = int(scanner_square_size) * 2
+        self.grid_tile_pitch = (
+            int(scanner_square_size) * 4 + self.table_settings["cell_gap"]
+        )
         cv2.setMouseCallback("scanner_gui_window", self.on_grid_mouse)
+
+        # proportional editing radius for dragging grid points, in tiles
+        # 0 only moves the dragged point, like blender proportional edit off
+        cv2.createTrackbar(
+            "proportional",
+            "scanner_gui_window",
+            3,
+            max(grid_dimensions_x, grid_dimensions_y),
+            lambda _: None,
+        )
 
         # run the video loop forever
         while True:
@@ -596,6 +609,16 @@ class Cityscopy:
                 (0, 0, 255),
                 1,
             )
+            # show the proportional editing radius around the dragged point
+            proportional_radius = self.get_proportional_radius()
+            if proportional_radius > 0:
+                cv2.circle(
+                    vid,
+                    (int(point[0]), int(point[1])),
+                    proportional_radius,
+                    (0, 255, 255),
+                    1,
+                )
 
     ##################################################
 
@@ -605,7 +628,10 @@ class Cityscopy:
 
         Steps:
         pick the closest intersection on press, move it while dragging,
-        save the grid to grid.txt on release
+        save the grid to grid.txt on release.
+        like blender proportional edit, points within the "proportional"
+        radius follow the dragged point with a smooth falloff, measured
+        from where the points were when the drag started
         """
 
         if event == cv2.EVENT_LBUTTONDOWN:
@@ -613,11 +639,54 @@ class Cityscopy:
             closest = np.unravel_index(np.argmin(distances), distances.shape)
             if distances[closest] <= self.grid_pick_radius:
                 self.grid_drag_index = closest
+                self.grid_drag_start_points = self.grid_points.copy()
+                self.grid_drag_start_mouse = np.array((x, y), dtype=np.float32)
+                self.grid_drag_weights = self.get_proportional_weights(closest)
         elif event == cv2.EVENT_MOUSEMOVE and self.grid_drag_index is not None:
-            self.grid_points[self.grid_drag_index] = (x, y)
+            mouse_offset = (
+                np.array((x, y), dtype=np.float32) - self.grid_drag_start_mouse
+            )
+            self.grid_points = (
+                self.grid_drag_start_points
+                + self.grid_drag_weights[..., None] * mouse_offset
+            )
         elif event == cv2.EVENT_LBUTTONUP and self.grid_drag_index is not None:
             self.grid_drag_index = None
             self.save_grid_to_file()
+
+    ##################################################
+
+    def get_proportional_radius(self):
+        """
+        Returns the proportional editing radius in pixels from the slider
+        """
+
+        tiles = cv2.getTrackbarPos("proportional", "scanner_gui_window")
+        return max(tiles, 0) * self.grid_tile_pitch
+
+    ##################################################
+
+    def get_proportional_weights(self, grid_index):
+        """
+        how much every grid point follows the dragged one.
+
+        Steps:
+        1 at the dragged point, smooth falloff (smoothstep, like
+        blender's default) to 0 at the proportional radius
+
+        Returns (grid_y + 1, grid_x + 1) array of weights 0..1
+        """
+
+        radius = self.get_proportional_radius()
+        weights = np.zeros(self.grid_points.shape[:2], dtype=np.float32)
+        if radius > 0:
+            distances = np.linalg.norm(
+                self.grid_points - self.grid_points[grid_index], axis=2
+            )
+            closeness = np.clip(1 - distances / radius, 0, 1)
+            weights = closeness * closeness * (3 - 2 * closeness)
+        weights[grid_index] = 1
+        return weights
 
     ##################################################
 
