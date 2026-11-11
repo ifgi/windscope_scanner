@@ -180,24 +180,18 @@ class Cityscopy:
         cv2.resizeWindow("scanner_gui_window", 800, 800)
         cv2.moveWindow("scanner_gui_window", 10, 100)
 
-        # separate controls window docked to the right of the video window
-        cv2.namedWindow("scanner_controls", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("scanner_controls", 400, 400)
-        cv2.moveWindow("scanner_controls", 820, 100)
-        cv2.imshow("scanner_controls", np.zeros((1, 400, 3), dtype=np.uint8))
-
         # brightness/contrast sliders for the preprocessed image
         # brightness: -100..100 (slider 0..200), contrast: 0.00..3.00 (slider 0..300)
         cv2.createTrackbar(
             "brightness",
-            "scanner_controls",
+            "scanner_gui_window",
             int(self.table_settings.get("brightness", 0)) + 100,
             200,
             lambda _: None,
         )
         cv2.createTrackbar(
             "contrast",
-            "scanner_controls",
+            "scanner_gui_window",
             int(self.table_settings.get("contrast", 1.0) * 100),
             300,
             lambda _: None,
@@ -209,7 +203,7 @@ class Cityscopy:
         for side in ("top", "right", "bottom", "left"):
             cv2.createTrackbar(
                 "distort_" + side,
-                "scanner_controls",
+                "scanner_gui_window",
                 int(self.table_settings.get("distort_" + side, 0)) + 100,
                 200,
                 lambda _: None,
@@ -280,7 +274,7 @@ class Cityscopy:
 
                 # bend each edge from the distortion sliders, corners stay fixed
                 edge_distortion = [
-                    cv2.getTrackbarPos("distort_" + side, "scanner_controls") - 100
+                    cv2.getTrackbarPos("distort_" + side, "scanner_gui_window") - 100
                     for side in ("top", "right", "bottom", "left")
                 ]
                 this_frame = self.apply_edge_distortion(this_frame, edge_distortion)
@@ -292,9 +286,9 @@ class Cityscopy:
 
                 # apply brightness/contrast from the sliders before scanning
                 brightness = (
-                    cv2.getTrackbarPos("brightness", "scanner_controls") - 100
+                    cv2.getTrackbarPos("brightness", "scanner_gui_window") - 100
                 )
-                contrast = cv2.getTrackbarPos("contrast", "scanner_controls") / 100
+                contrast = cv2.getTrackbarPos("contrast", "scanner_gui_window") / 100
                 keystoned_video = cv2.convertScaleAbs(
                     keystoned_video, alpha=contrast, beta=brightness
                 )
